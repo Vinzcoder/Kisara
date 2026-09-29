@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0c0d0f">
+<title>KISAR</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0d0f;--surface:#141519;--raise:#1a1c21;--line:#25272d;--ink:#f1eee5;--muted:#98948a;--amber:#ffb03a;--amber-ink:#1a1204;--love:#ff6b5e}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:radial-gradient(800px 400px at 50% -80px,rgba(255,176,58,.08),transparent 70%) no-repeat,var(--bg);color:var(--ink);font:400 15px/1.6 "Space Grotesk",system-ui,sans-serif;min-height:100vh}
+button,input,textarea{font-family:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;padding:calc(12px + env(safe-area-inset-top,0px)) 20px 12px;border-bottom:1px solid var(--line);background:rgba(12,13,15,.85);backdrop-filter:blur(10px)}
+.brand{font-weight:700;font-size:13px;letter-spacing:.34em}
+.live{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+.live i{width:7px;height:7px;border-radius:50%;background:#6b6d73}
+.live.on i{background:#7adfa5}.live.wait i{background:var(--amber)}
+main{max-width:620px;margin:0 auto;padding:22px 20px 80px}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px 16px;transition:border-color .2s,box-shadow .2s}
+.box:focus-within{border-color:var(--amber);box-shadow:0 0 0 4px rgba(255,176,58,.1)}
+#body{width:100%;min-height:74px;resize:none;background:none;border:none;font-size:16px;line-height:1.55}
+#body:focus{outline:none}#body::placeholder{color:#63656b}
+.row{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}
+#name{width:130px;background:var(--raise);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px}
+#name:focus{outline:none;border-color:var(--amber)}
+.count{margin-left:auto;font-size:12px;color:var(--muted)}.count.warn{color:var(--love)}
+#send{background:var(--amber);color:var(--amber-ink);border:none;border-radius:999px;padding:8px 20px;font-weight:700;font-size:14px;cursor:pointer}
+#send:disabled{opacity:.45;cursor:not-allowed}
+.err{min-height:20px;margin-top:8px;font-size:13px;color:var(--love)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px 18px;margin-top:12px}
+.card.new{animation:in .4s ease}@keyframes in{from{opacity:0;transform:translateY(-8px)}}
+.h{display:flex;align-items:center;gap:10px}
+.av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#101010;text-transform:uppercase;flex:none}
+.h b{font-size:14.5px}.h span{font-size:12.5px;color:var(--muted);margin-left:auto}
+.t{margin-top:10px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65}
+.like{margin-top:8px;margin-left:-8px;display:inline-flex;align-items:center;gap:7px;background:none;border:none;color:var(--muted);font-weight:600;font-size:13px;padding:6px 8px;border-radius:9px;cursor:pointer}
+.like:hover{background:var(--raise);color:var(--ink)}
+.like svg{width:17px;height:17px}.like.on{color:var(--love)}.like.on svg{fill:var(--love)}
+.empty{text-align:center;color:var(--muted);padding:48px 12px;border:1px dashed #33363d;border-radius:18px;margin-top:14px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top"><span class="brand">KISAR</span><span class="live wait" id="live"><i></i><span id="live-t">Menyambung…</span></span></header>
+<main>
+  <div class="box">
+    <textarea id="body" maxlength="280" placeholder="Apa yang sedang terjadi?" aria-label="Tulis post"></textarea>
+    <div class="row">
+      <input id="name" maxlength="24" placeholder="Namamu" aria-label="Nama tampilan">
+      <span class="count" id="count">280</span>
+      <button id="send" disabled>Kirim</button>
+    </div>
+  </div>
+  <p class="err" id="err" role="status" aria-live="polite"></p>
+  <div id="feed"></div>
+</main>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => n >= 1000 ? (n / 1000).toFixed(1).replace('.', ',') + ' rb' : String(n);
+function ago(ts){const m=(Date.now()-ts)/6e4;return m<1?'baru saja':m<60?Math.floor(m)+' mnt':m<1440?Math.floor(m/60)+' jam':Math.floor(m/1440)+' hr'}
+function av(n){let h=0;for(const c of n)h=(h*31+c.charCodeAt(0))%360;return `<span class="av" style="background:linear-gradient(135deg,hsl(${h} 85% 68%),hsl(${(h+50)%360} 75% 52%))">${esc(n.charAt(0))}</span>`}
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { return null; } };
+
+let cid = store('kisar:cid');
+if (!cid){ cid = (crypto.randomUUID?.() || Math.random().toString(36).slice(2) + Date.now().toString(36)); store('kisar:cid', cid); }
+$('#name').value = store('kisar:name') || '';
+
+let posts = [], mine = new Set(), connected = false;
+const heart = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>';
+function card(p, isNew){
+  return `<article class="card ${isNew ? 'new' : ''}" data-id="${esc(p.id)}"><div class="h">${av(p.author)}<b>${esc(p.author)}</b><span class="ago" data-ts="${p.ts}">${ago(p.ts)}</span></div>
+  <p class="t">${esc(p.body)}</p><button class="like ${mine.has(p.id) ? 'on' : ''}" aria-label="Suka">${heart}<span>${fmt(p.likes)}</span></button></article>`;
+}
+function render(){
+  $('#feed').innerHTML = posts.length ? posts.map(p => card(p)).join('') : '<div class="empty">Belum ada post. Jadilah yang pertama menulis.</div>';
+}
+function status(s, t){ $('#live').className = 'live ' + s; $('#live-t').textContent = t; }
+function sync(){ $('#send').disabled = !connected || !$('#body').value.trim(); }
+
+const socket = io(store('kisar:rt') || undefined, { auth: { cid } });
+socket.on('connect', () => { connected = true; status('on', 'Live'); sync(); });
+socket.on('disconnect', () => { connected = false; status('off', 'Terputus'); sync(); });
+socket.on('connect_error', () => { connected = false; status('off', 'Server tidak terjangkau'); sync(); });
+socket.on('presence', d => status('on', 'Live · ' + d.online + ' online'));
+socket.on('init', d => { posts = d.posts; mine = new Set(d.mine); render(); });
+socket.on('post:new', p => {
+  if (posts.some(x => x.id === p.id)) return;
+  posts.unshift(p);
+  const f = $('#feed'); if (f.querySelector('.empty')) f.innerHTML = '';
+  f.insertAdjacentHTML('afterbegin', card(p, true));
+});
+socket.on('likes', d => {
+  const p = posts.find(x => x.id === d.id); if (!p) return;
+  p.likes = d.likes;
+  const el = document.querySelector(`.card[data-id="${CSS.escape(d.id)}"] .like span`);
+  if (el) el.textContent = fmt(d.likes);
+});
+
+$('#body').addEventListener('input', () => {
+  const left = 280 - $('#body').value.length;
+  $('#count').textContent = left; $('#count').classList.toggle('warn', left < 20); sync();
+});
+$('#body').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); });
+$('#send').addEventListener('click', send);
+function send(){
+  const body = $('#body').value.trim(); if (!body || !connected) return;
+  const author = $('#name').value.trim() || 'anon';
+  store('kisar:name', author);
+  $('#send').disabled = true; $('#err').textContent = '';
+  socket.emit('post', { body, author }, res => {
+    if (res && res.ok){ $('#body').value = ''; $('#count').textContent = 280; }
+    else $('#err').textContent = (res && res.error) || 'Gagal mengirim.';
+    sync();
+  });
+}
+$('#feed').addEventListener('click', e => {
+  const b = e.target.closest('.like'); if (!b || !connected) return;
+  const id = b.closest('.card').dataset.id, on = !mine.has(id);
+  on ? mine.add(id) : mine.delete(id);
+  b.classList.toggle('on', on);
+  socket.emit('like', { id, on });
+});
+setInterval(() => document.querySelectorAll('.ago').forEach(el => el.textContent = ago(+el.dataset.ts)), 30000);
+</script>
+</body>
+</html>
